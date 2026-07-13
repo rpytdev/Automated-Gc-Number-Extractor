@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Excel to JS List Converter</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --border: #2a2f3a;
+    --text: #e6e8eb;
+    --muted: #9aa2b1;
+    --accent: #5b8cff;
+    --accent-hover: #4676f0;
+    --success: #34c77b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: 32px 20px;
+  }
+  .wrap {
+    max-width: 720px;
+    margin: 0 auto;
+  }
+  h1 {
+    font-size: 20px;
+    font-weight: 600;
+    margin: 0 0 6px 0;
+  }
+  .subtitle {
+    color: var(--muted);
+    font-size: 14px;
+    margin-bottom: 24px;
+  }
+  .dropzone {
+    border: 2px dashed var(--border);
+    border-radius: 12px;
+    padding: 32px 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+    background: var(--panel);
+  }
+  .dropzone:hover, .dropzone.dragover {
+    border-color: var(--accent);
+    background: #1b2030;
+  }
+  .dropzone p {
+    margin: 0;
+    color: var(--muted);
+    font-size: 14px;
+  }
+  .dropzone .icon {
+    font-size: 28px;
+    margin-bottom: 8px;
+  }
+  input[type="file"] { display: none; }
+  .file-info {
+    margin-top: 12px;
+    font-size: 13px;
+    color: var(--success);
+    display: none;
+  }
+  .controls {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 20px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  select {
+    background: var(--panel);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 13px;
+  }
+  .result {
+    margin-top: 24px;
+    display: none;
+  }
+  .result-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+  }
+  .result-header span {
+    font-size: 13px;
+    color: var(--muted);
+  }
+  button.copy-btn {
+    background: var(--accent);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    padding: 8px 16px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  button.copy-btn:hover { background: var(--accent-hover); }
+  button.copy-btn.copied { background: var(--success); }
+  textarea {
+    width: 100%;
+    min-height: 260px;
+    background: #0b0d12;
+    color: #c9d1e0;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+    font-family: "SF Mono", Consolas, Monaco, monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    resize: vertical;
+  }
+  .count-badge {
+    display: inline-block;
+    background: #1b2030;
+    color: var(--accent);
+    border-radius: 20px;
+    padding: 2px 10px;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .error {
+    color: #ff6b6b;
+    font-size: 13px;
+    margin-top: 12px;
+    display: none;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Excel &rarr; JS List Converter</h1>
+  <div class="subtitle">Excel file upload karo, Column A se values nikal ke console-script-ready format mein de dega.</div>
+
+  <div class="dropzone" id="dropzone">
+    <div class="icon">📄</div>
+    <p><strong>Click karo ya file drag-drop karo</strong><br/>.xlsx / .xls / .csv</p>
+    <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" />
+    <div class="file-info" id="fileInfo"></div>
+  </div>
+
+  <div class="controls" id="controls" style="display:none;">
+    <label for="columnSelect">Column:</label>
+    <select id="columnSelect"></select>
+    <label for="sheetSelect">Sheet:</label>
+    <select id="sheetSelect"></select>
+  </div>
+
+  <div class="error" id="errorMsg"></div>
+
+  <div class="result" id="result">
+    <div class="result-header">
+      <span><span class="count-badge" id="countBadge">0</span> values mile</span>
+      <button class="copy-btn" id="copyBtn">Copy karo</button>
+    </div>
+    <textarea id="output" readonly spellcheck="false"></textarea>
+  </div>
+</div>
+
+<script>
+let workbook = null;
+let currentSheetData = [];
+
+const dropzone = document.getElementById('dropzone');
+const fileInput = document.getElementById('fileInput');
+const fileInfo = document.getElementById('fileInfo');
+const controls = document.getElementById('controls');
+const columnSelect = document.getElementById('columnSelect');
+const sheetSelect = document.getElementById('sheetSelect');
+const resultDiv = document.getElementById('result');
+const output = document.getElementById('output');
+const countBadge = document.getElementById('countBadge');
+const copyBtn = document.getElementById('copyBtn');
+const errorMsg = document.getElementById('errorMsg');
+
+dropzone.addEventListener('click', () => fileInput.click());
+dropzone.addEventListener('dragover', (e) => { e.preventDefault(); dropzone.classList.add('dragover'); });
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+dropzone.addEventListener('drop', (e) => {
+  e.preventDefault();
+  dropzone.classList.remove('dragover');
+  if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener('change', (e) => {
+  if (e.target.files.length) handleFile(e.target.files[0]);
+});
+
+function handleFile(file) {
+  errorMsg.style.display = 'none';
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const data = new Uint8Array(e.target.result);
+      workbook = XLSX.read(data, { type: 'array' });
+      fileInfo.textContent = `✓ ${file.name} loaded`;
+      fileInfo.style.display = 'block';
+
+      sheetSelect.innerHTML = '';
+      workbook.SheetNames.forEach((name) => {
+        const opt = document.createElement('option');
+        opt.value = name;
+        opt.textContent = name;
+        sheetSelect.appendChild(opt);
+      });
+
+      controls.style.display = 'flex';
+      loadSheet(workbook.SheetNames[0]);
+    } catch (err) {
+      showError('File padhne mein error aaya: ' + err.message);
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function loadSheet(sheetName) {
+  const ws = workbook.Sheets[sheetName];
+  currentSheetData = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+
+  const maxCols = currentSheetData.reduce((m, row) => Math.max(m, row.length), 0);
+  columnSelect.innerHTML = '';
+  for (let i = 0; i < maxCols; i++) {
+    const opt = document.createElement('option');
+    opt.value = i;
+    opt.textContent = 'Column ' + String.fromCharCode(65 + i);
+    columnSelect.appendChild(opt);
+  }
+  columnSelect.value = 0;
+  generateOutput();
+}
+
+sheetSelect.addEventListener('change', () => loadSheet(sheetSelect.value));
+columnSelect.addEventListener('change', generateOutput);
+
+function generateOutput() {
+  const colIndex = parseInt(columnSelect.value, 10);
+  const values = currentSheetData
+    .map((row) => (row[colIndex] !== undefined ? String(row[colIndex]).trim() : ''))
+    .filter((v) => v !== '');
+
+  if (values.length === 0) {
+    showError('Is column mein koi value nahi mili.');
+    resultDiv.style.display = 'none';
+    return;
+  }
+
+  errorMsg.style.display = 'none';
+  countBadge.textContent = values.length;
+
+  const formatted = 'const GC_NUMBERS_RAW = `\n' + values.join('\n') + '\n`;';
+  output.value = formatted;
+  resultDiv.style.display = 'block';
+}
+
+function showError(msg) {
+  errorMsg.textContent = msg;
+  errorMsg.style.display = 'block';
+}
+
+copyBtn.addEventListener('click', () => {
+  output.select();
+  navigator.clipboard.writeText(output.value).then(() => {
+    copyBtn.textContent = '✓ Copied!';
+    copyBtn.classList.add('copied');
+    setTimeout(() => {
+      copyBtn.textContent = 'Copy karo';
+      copyBtn.classList.remove('copied');
+    }, 1500);
+  });
+});
+</script>
+</body>
+</html>
